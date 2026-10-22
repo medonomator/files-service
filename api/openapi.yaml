@@ -1,0 +1,204 @@
+openapi: 3.1.0
+info:
+  title: files-service
+  version: 1.0.0
+  description: >
+    Multi-tenant upload service. Client backends authenticate with an API key and receive
+    short-lived signed URLs, so file bytes go straight to Google Cloud Storage.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:4010
+security:
+  - apiKey: []
+paths:
+  /v1/uploads:
+    post:
+      operationId: createUpload
+      summary: Reserve quota and get a signed upload URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpload'
+      responses:
+        '201':
+          description: Upload ticket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadTicket'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/files/{fileId}/complete:
+    post:
+      operationId: completeUpload
+      summary: Verify the uploaded object and mark the file ready
+      description: >
+        Checks size, stored content type and magic bytes of the staged object, then moves it to
+        its final name. Idempotent for files that are already ready.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: Ready file with a download link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/File'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/files/{fileId}:
+    get:
+      operationId: getFile
+      summary: Get file metadata and a fresh download link
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - name: urlTtl
+          in: query
+          description: Download link lifetime in seconds, bounded by MAX_DOWNLOAD_URL_TTL.
+          schema: { type: integer, minimum: 1, maximum: 604800 }
+      responses:
+        '200':
+          description: File
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/File'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      operationId: deleteFile
+      summary: Delete the object and its record, releasing quota
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200': { description: Process is alive }
+  /ready:
+    get:
+      operationId: ready
+      security: []
+      responses:
+        '200': { description: Postgres and GCS are reachable }
+        '503': { description: A dependency is down }
+  /version:
+    get:
+      operationId: version
+      security: []
+      responses:
+        '200':
+          description: Build version
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: 'Client API key, fsk_ followed by 43 base64url characters.'
+  parameters:
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Error:
+      description: Error
+      headers:
+        X-Request-Id:
+          schema: { type: string }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    CreateUpload:
+      type: object
+      additionalProperties: false
+      required: [fileName, contentType, sizeBytes]
+      properties:
+        fileName: { type: string, example: Lesson 1.mp4 }
+        contentType: { type: string, example: video/mp4 }
+        sizeBytes: { type: integer, format: int64, minimum: 1 }
+        folder:
+          type: string
+          default: files
+          pattern: '^[a-z0-9][a-z0-9_-]{0,62}(/[a-z0-9][a-z0-9_-]{0,62}){0,3}$'
+        ownerRef: { type: string, maxLength: 128 }
+    UploadTicket:
+      type: object
+      required: [fileId, uploadMode, method, uploadUrl, headers, expiresAt]
+      properties:
+        fileId: { type: string, format: uuid }
+        uploadMode: { type: string, enum: [single, resumable] }
+        method: { type: string, enum: [PUT, POST] }
+        uploadUrl: { type: string, format: uri }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: Headers the uploader must send exactly as given.
+        chunkSizeBytes:
+          type: integer
+          description: Present for resumable uploads.
+        expiresAt: { type: string, format: date-time }
+    File:
+      type: object
+      required: [id, status, folder, fileName, contentType, sizeBytes, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, ready, failed] }
+        folder: { type: string }
+        ownerRef: { type: [string, 'null'] }
+        fileName: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        readyAt: { type: [string, 'null'], format: date-time }
+        downloadUrl: { type: [string, 'null'], format: uri }
+        downloadUrlExpiresAt: { type: [string, 'null'], format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_request, unauthorized, not_found, method_not_allowed, conflict, too_large, quota_exceeded, unsupported_type, rate_limited, internal]
+            message: { type: string }

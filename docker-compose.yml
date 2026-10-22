@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: files-service-pg
+    environment:
+      POSTGRES_DB: files
+      POSTGRES_USER: files
+      POSTGRES_PASSWORD: files
+    ports:
+      - "5471:5432"
+    volumes:
+      - files-pg:/var/lib/postgresql
+
+volumes:
+  files-pg:
