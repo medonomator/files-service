@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/medonomator/files-service)](https://goreportcard.com/report/github.com/medonomator/files-service)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A small multi-tenant file upload service in Go. Backends of other products authenticate with their own API key and get short-lived signed URLs. Browsers and mobile apps then upload straight to Google Cloud Storage, so file bytes never pass through the service. One instance serves gigabyte videos on about 20 MB of RAM.
+A small multi-tenant file upload service in Go. Backends of other products authenticate with their own API key and get short-lived signed URLs. Browsers and mobile apps then upload straight to Google Cloud Storage, so file bytes never pass through the service. In production a single instance handles gigabyte videos in about 36 MB of RAM.
 
 It runs in production behind [Home Sharing](https://home-sharing24.ru), an apart-hotel platform, where it stores training videos, guest video reviews and staff documents.
 
